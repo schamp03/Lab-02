@@ -7,16 +7,10 @@ author:
 format: html
 ---
 
-# Libraries
-
 ```{r}
-install.packages('gghighlight')
-install.packages('ggrepel')
-install.packages('st_transform')
-
+# Libraries
 # spatial data science
 library(tidyverse)
-library(sf)
 library(units)
 
 
@@ -30,6 +24,7 @@ library(ggrepel)
 library(knitr)
 library(remotes)
 ```
+
 
 # Question 1
 
@@ -47,8 +42,9 @@ US_boundaries<- data.frame(boundaries_data)
 
 ```{r}
 library(AOI)
+library(sf)
 #Get USA State Boundaries
-usa_states <- aoi_get(state = "conus") |>
+states <- aoi_get(state = "conus") |>
   st_transform(crs = eqdc)
 
 ```
@@ -62,6 +58,7 @@ north_america <- aoi_get(country = c("MX", "CA", "USA")) %>%
 
 ```
 
+
 ```{r}
 remotes::install_github("ropensci/USAboundaries")
 remotes::install_github("ropensci/USAboundariesData")
@@ -71,32 +68,24 @@ remotes::install_github("ropensci/rnaturalearthdata")
 ## 1.4 Get City Locations
 
 ```{r}
+library(readr)
+library(dplyr)
+library(sf)
+
+# Load CSV
 uscities <- read_csv("data/uscities.csv")
 
-eqdc <- st_crs(5070)
-states <- USAboundaries::us_states(resolution = "low") |>
-  filter(!state_abbr %in% c("HI","AK","PR")) |>
-  st_transform(eqdc)
 
-countries <- rnaturalearth::countries110 |>
-  st_transform(eqdc)
-
+uscities_sf <- uscities |>
+  filter(!state_id %in% c("PR", "HI", "AK")) |>  
+  st_as_sf(coords = c("lng", "lat"), crs = 4326) |>  
+  st_transform(5070)  
 
 ```
 
 # Question 2
 
-```{r}
-# Use EPSG:5070 (Conus Albers)
-crs_proj <- 5070
-
-# Reproject everything
-uscities_sf <- st_transform(uscities_sf, crs = crs_proj)
-usa_border <- st_transform(usa_border, crs = crs_proj)
-
-```
-
-## 2.1 Distance to USA Border (km)
+## 2.1 Distance to USA border
 
 ```{r}
 library(tidyverse)
@@ -108,6 +97,8 @@ usa_border <- states |>
   st_union() |>                    
   st_cast("MULTILINESTRING")       
 
+uscities_sf <- uscities_sf |>
+  st_transform(crs = eqdc)
 # calculate distance from each city to the USA border
 uscities_sf <- uscities_sf |>
   mutate(dist_to_usa_border_km = set_units(st_distance(geometry, usa_border), "km"))
@@ -157,6 +148,9 @@ mexico_border <- countries |>
   st_transform(5070)
 
 uscities_sf <- uscities_sf |>
+  st_transform(crs = 5070)
+
+uscities_sf <- uscities_sf |>
   mutate(dist_to_mexico_km = set_units(st_distance(geometry, mexico_border), "km"))
 
 uscities_sf |>
@@ -171,6 +165,24 @@ uscities_sf |>
 ## Distance to Canada (km)
 
 ```{r}
+library(sf)
+library(dplyr)
+library(units)
+library(rnaturalearth)
+
+# Load countries
+countries <- ne_countries(scale = "small", returnclass = "sf")
+
+# Create Canada border and transform to match city CRS
+canada_border <- countries |>
+  filter(sovereignt == "Canada") |>
+  st_union() |>
+  st_cast("MULTILINESTRING") |>
+  st_transform(5070)
+
+uscities_sf <- uscities_sf |>
+  st_transform(5070)
+
 uscities_sf <- uscities_sf |>
   mutate(dist_to_canada_km = set_units(st_distance(geometry, canada_border), "km"))
 
@@ -212,7 +224,7 @@ ggplot()+
 
 ```{r}
 # Top 5 farthest cities
-# Convert units column to numeric
+# Convert units column
 uscities_sf <- uscities_sf |>
   mutate(dist_to_usa_border_num = as.numeric(dist_to_usa_border_km))
 
@@ -220,7 +232,7 @@ uscities_sf <- uscities_sf |>
 farthest_from_border <- uscities_sf |>
   slice_max(order_by = dist_to_usa_border_num, n = 5)
 
-# Create label data with x and y coordinates
+
 label_data <- farthest_from_border |>
   mutate(coords = st_coordinates(geometry)) |>
   mutate(x = coords[,1], y = coords[,2]) |>
@@ -253,7 +265,7 @@ uscities_sf <- uscities_sf |>
 farthest_from_state <- uscities_sf |>
   slice_max(order_by = dist_to_state_border_num, n = 5)
 
-# Extract coords for labels
+# Extract coordinates for labels
 label_state <- farthest_from_state |>
   mutate(coords = st_coordinates(geometry)) |>
   mutate(x = coords[, 1], y = coords[, 2]) |>
